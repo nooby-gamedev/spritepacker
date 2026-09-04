@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/png"
 	"os"
 	"path/filepath"
@@ -12,7 +13,6 @@ import (
 
 	"github.com/nooby-gamedev/spritepacker/pkg/extensions"
 	"github.com/nooby-gamedev/spritepacker/pkg/spritepack"
-	"github.com/rs/zerolog/log"
 )
 
 type SpriteName string
@@ -62,38 +62,25 @@ func New(spritePackImage, spritePackJson string) (*SpritePackReader, error) {
 	return s, nil
 }
 
-// Draw the sprite in dst at the given dst coordinates.
-// It only draws the coordinates within the boundaries.
+// Draws.
 //
-// If the sprite was not found, it returns an error.
+// If the sprite was not found, it returns ErrSpriteNotFound.
 //
-// If the sprite sheet has not been loaded, it panics.
-func (s *SpritePackReader) DrawSprite(name SpriteName, dst DrawableImage, dstX, dstY int) error {
+// If the sprite sheet has not been loaded, it returns ErrSpriteSheetNodLoaded.
+func (s *SpritePackReader) DrawSprite(name SpriteName, dst draw.Image, dstX, dstY int) error {
 	if s.spritePackImage == nil {
-		log.Fatal().Msg("fatal error: the sprite sheet has not been loaded yet")
+		return ErrSpriteSheetNodLoaded
 	}
 
 	sprite := s.spritePack.Sprite(string(name))
 	if sprite == nil {
-		return nil
+		return ErrSpriteNotFound
 	}
 
-	for x := range sprite.Width {
-		newDstX := x + dstX
-		if newDstX >= dst.Bounds().Dx() {
-			break
-		}
-		for y := range sprite.Height {
-			newDstY := y + dstY
-			if newDstY >= dst.Bounds().Dy() {
-				break
-			}
-			spriteX := sprite.X + x
-			spriteY := sprite.Y + y
-			clr := s.spritePackImage.At(spriteX, spriteY)
-			dst.Set(newDstX, newDstY, clr)
-		}
-	}
+	dstRect := image.Rect(dstX, dstY, (dstX + sprite.Width), (dstY + sprite.Height))
+	srcPoint := sprite.Point()
+
+	draw.Draw(dst, dstRect, s.spritePackImage, srcPoint, 0)
 	return nil
 }
 

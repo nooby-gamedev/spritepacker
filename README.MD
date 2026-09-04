@@ -93,7 +93,7 @@ var sprites *spritepackreader.SpritePackReader
 func (g *Game) Draw(screen *ebiten.Image) {
 	if sprites == nil {
 		var err error
-		sprites, err = spritepackreader.New("spritesheet.png", "spritesheet.json")
+		sprites, err = spritepackreader.New("/tmp/spritesheet.png", "/tmp/spritesheet.json")
 		if err != nil {
 			log.Fatal().Err(err).Msg("fatal error")
 		}

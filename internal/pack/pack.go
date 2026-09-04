@@ -227,7 +227,7 @@ func (p *Pack) Finalize(savePath string) {
 		Msg("finalizing pack")
 
 	imgSize := image.Rect(0, 0, p.width(), p.height())
-	img := image.NewNRGBA(imgSize)
+	img := image.NewRGBA(imgSize)
 
 	for _, box := range p.consumedBoxes {
 		for x := range box.width() {

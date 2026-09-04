@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"fmt"
+	"image"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -207,4 +208,24 @@ func (s *SpritePack) Sprite(spriteNormalizedName string) *Sprite {
 		return nil
 	}
 	return &existing
+}
+
+func (s Sprite) Rect() image.Rectangle {
+	return image.Rect(s.X, s.Y, s.Dx(), s.Dy())
+}
+func (s Sprite) Point() image.Point {
+	return image.Point{
+		X: s.X,
+		Y: s.Y,
+	}
+}
+
+// Returns X + Width
+func (s Sprite) Dx() int {
+	return s.X + s.Width
+}
+
+// Returns Y + Height
+func (s Sprite) Dy() int {
+	return s.Y + s.Height
 }
