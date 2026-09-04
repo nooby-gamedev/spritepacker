@@ -227,9 +227,18 @@ func (b *Box) bottom() int {
 // Panics if image has not been set.
 func (b *Box) imageName() string {
 	if b.imgInfo == nil {
-		log.Fatal().Msg("fatal error: imgInfo cannot be nil on calling canFit")
+		log.Fatal().Msg("fatal error: imgInfo cannot be nil on calling imageName")
 	}
 	return b.imgInfo.Name
+}
+
+// Returns the image animation group
+// Panics if image has not been set.
+func (b *Box) animationGroup() string {
+	if b.imgInfo == nil {
+		log.Fatal().Msg("fatal error: imgInfo cannot be nil on calling animationGroup")
+	}
+	return b.imgInfo.AnimationGroup
 }
 
 // Releases all the resources

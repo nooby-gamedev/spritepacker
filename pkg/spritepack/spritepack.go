@@ -14,11 +14,15 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
+const emptyAnimationGroup string = ""
+
 type SpritePack struct {
-	Sprites map[string]Sprite `json:"sprites"`
+	Sprites         map[string]Sprite   `json:"sprites"`
+	AnimationGroups map[string][]string `json:"animation_groups"`
 }
 
 type Sprite struct {
+	AnimationGroup string `json:"animation_group"`
 	NormalizedName string `json:"normalized_name"`
 	Name           string `json:"name"`
 	X              int    `json:"x"`
@@ -29,12 +33,14 @@ type Sprite struct {
 
 func New() *SpritePack {
 	return &SpritePack{
-		Sprites: make(map[string]Sprite, 0),
+		Sprites:         make(map[string]Sprite, 0),
+		AnimationGroups: make(map[string][]string, 0),
 	}
 }
 
-func newSprite(normalizedName, name string, x, y, width, height int) Sprite {
+func newSprite(animationGroup, normalizedName, name string, x, y, width, height int) Sprite {
 	return Sprite{
+		AnimationGroup: animationGroup,
 		NormalizedName: normalizedName,
 		Name:           name,
 		X:              x,
@@ -45,25 +51,31 @@ func newSprite(normalizedName, name string, x, y, width, height int) Sprite {
 }
 
 var normalizeRegexp = regexp.MustCompile(`(?i)[^a-z_0-9]`)
-var startsWithoutLetterRegexp = regexp.MustCompile(`(?i)^[^a-z]`)
 var findMultipleUnderscoreRegexp = regexp.MustCompile(`[_]{2,}`)
-var capitalizeLetterRegexp = regexp.MustCompile(`(?i)[_]([a-z]{1})`)
+var capitalizeLetterRegexp = regexp.MustCompile(`(?i)[_]([a-z0-9]{1})`)
 
 // Normalize the sprite name.
 // The normalized name can be used also as variable name in Go.
-func (s *SpritePack) normalizeSpriteName(name string) string {
-	// Set "Sprite" as prefix for sprites with a name that
-	// starts without a letter
-	if startsWithoutLetterRegexp.MatchString(name) {
-		name = fmt.Sprintf("Sprite%s", name)
+func (s *SpritePack) normalizeSpriteName(name string, isAnimationGroup bool) string {
+	// Set "Sprite" as prefix for Sprites.
+	// Add an extra underscore so that the next code will recognize it and
+	// set the next letter as uppercase, if necessary.
+	if !isAnimationGroup && !strings.HasPrefix(strings.ToLower(name), "sprite") {
+		name = fmt.Sprintf("Sprite_%s", name)
 	}
 
-	// Set an underscore as a prefix.
-	// This will be used by "capitalizeLetterRegexp" to set the first letter ToUpper,
-	// if necessary (the underscore will be removed)
-	name = fmt.Sprintf("_%s", name)
-	// Remove the extension
-	name, _ = strings.CutSuffix(name, filepath.Ext(name))
+	// Set "Animation" as prefix for Animation Groups.
+	// Add an extra underscore so that the next code will recognize it and
+	// set the next letter as uppercase, if necessary.
+	if isAnimationGroup && !strings.HasPrefix(strings.ToLower(name), "animation") {
+		name = fmt.Sprintf("Animation_%s", name)
+	}
+
+	// Remove the extension (only if is NOT an animation group, as
+	// animation groups are folders)
+	if !isAnimationGroup {
+		name, _ = strings.CutSuffix(name, filepath.Ext(name))
+	}
 	// Replace invalid characters with "_"
 	name = normalizeRegexp.ReplaceAllString(name, "_")
 	// Replace multiple underscores with a single underscore
@@ -76,13 +88,19 @@ func (s *SpritePack) normalizeSpriteName(name string) string {
 	return name
 }
 
-func (s *SpritePack) NewSprite(name string, x, y, width, height int) {
-	normalizedName := s.normalizeSpriteName(name)
+func (s *SpritePack) NewSprite(animationGroup, name string, x, y, width, height int) {
+	isAnimationGroup := animationGroup != emptyAnimationGroup
+	normalizedSpriteName := s.normalizeSpriteName(name, false)
+
+	normalizedAnimationGroupName := animationGroup
+	if isAnimationGroup {
+		normalizedAnimationGroupName = s.normalizeSpriteName(animationGroup, true)
+	}
 
 	nameIsValid := false
 	counter := 0
 	for !nameIsValid {
-		nameWithCounter := normalizedName
+		nameWithCounter := normalizedSpriteName
 		if counter > 0 {
 			nameWithCounter = fmt.Sprintf("%s%d", nameWithCounter, counter)
 		}
@@ -91,11 +109,23 @@ func (s *SpritePack) NewSprite(name string, x, y, width, height int) {
 			counter++
 			continue
 		}
-		normalizedName = nameWithCounter
+		normalizedSpriteName = nameWithCounter
 		nameIsValid = true
 	}
 
-	s.Sprites[normalizedName] = newSprite(normalizedName, name, x, y, width, height)
+	s.Sprites[normalizedSpriteName] = newSprite(animationGroup, normalizedSpriteName, name, x, y, width, height)
+
+	// If the sprite is part of an animation group, add the
+	// sprite to the group.
+	if isAnimationGroup {
+		existing, ok := s.AnimationGroups[normalizedAnimationGroupName]
+		if !ok {
+			existing = make([]string, 0)
+		}
+		existing = append(existing, normalizedSpriteName)
+		s.AnimationGroups[normalizedAnimationGroupName] = existing
+	}
+
 }
 
 func (s *SpritePack) ImportBuf(buf []byte) error {
@@ -181,19 +211,46 @@ func (s *SpritePack) createGoTemplate() string {
 	builder := strings.Builder{}
 	builder.WriteString(template)
 
-	sortedNames := make([]string, 0)
+	sortedSpriteNames := make([]string, 0)
 	for _, sprite := range s.Sprites {
-		sortedNames = append(sortedNames, sprite.NormalizedName)
+		sortedSpriteNames = append(sortedSpriteNames, sprite.NormalizedName)
 	}
-	slices.Sort(sortedNames)
+	slices.Sort(sortedSpriteNames)
 
-	for _, spriteName := range sortedNames {
+	if len(sortedSpriteNames) > 0 {
+		fmt.Fprintf(&builder, "/* Sprites */\n\n")
+	}
+	for _, spriteName := range sortedSpriteNames {
 		sprite, _ := s.Sprites[spriteName]
 		fmt.Fprintf(&builder, "const %s spritepackreader.SpriteName = \"%s\"\n", sprite.NormalizedName, sprite.NormalizedName)
+	}
+
+	sortedAnimationGroupNames := make([]string, 0)
+	for groupName := range s.AnimationGroups {
+		sortedAnimationGroupNames = append(sortedAnimationGroupNames, groupName)
+	}
+	slices.Sort(sortedAnimationGroupNames)
+
+	if len(sortedAnimationGroupNames) > 0 {
+		fmt.Fprintf(&builder, "\n\n/* Sprite Animation Groups */\n\n")
+	}
+
+	for _, groupName := range sortedAnimationGroupNames {
+		fmt.Fprintf(&builder, "const %s spritepackreader.SpriteAnimationGroupName = \"%s\"\n", groupName, groupName)
 	}
 	return builder.String()
 }
 
+func (s *SpritePack) SearchSpritesByName(names ...string) []*Sprite {
+	sprites := make([]*Sprite, 0)
+	for _, name := range names {
+		sprite, ok := s.Sprites[name]
+		if ok {
+			sprites = append(sprites, &sprite)
+		}
+	}
+	return sprites
+}
 func (s *SpritePack) Sprite(spriteNormalizedName string) *Sprite {
 	existing, ok := s.Sprites[spriteNormalizedName]
 	if !ok {

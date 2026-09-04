@@ -244,7 +244,7 @@ func (p *Pack) Finalize(savePath string) *spritepack.SpritePack {
 		dstRect := image.Rect(box.left(), box.top(), box.right(), box.bottom())
 		draw.Draw(img, dstRect, box.image(), image.Point{X: 0, Y: 0}, 0)
 
-		spritePack.NewSprite(box.imageName(), box.left(), box.top(), box.width(), box.height())
+		spritePack.NewSprite(box.animationGroup(), box.imageName(), box.left(), box.top(), box.width(), box.height())
 		box.close()
 	}
 

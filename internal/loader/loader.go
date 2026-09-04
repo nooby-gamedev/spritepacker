@@ -26,6 +26,9 @@ const (
 	LoadAllImagesInMemory bool = true
 	// Slower but consumes less resources
 	LoadOneImageAtTime bool = false
+
+	// Used as default when calling LoadImages
+	EmptyAnimationGroup string = ""
 )
 
 type SizeType string
@@ -95,7 +98,7 @@ func (l *Loader) isExtensionSupported(ext string) bool {
 
 // Load all images and order them by either width or height
 // depending on the max value detected.
-func (l *Loader) LoadImages(dir string) *Loader {
+func (l *Loader) LoadImages(dir string, animationGroup string) *Loader {
 	entries, err := os.ReadDir(dir)
 
 	if err != nil {
@@ -111,6 +114,14 @@ func (l *Loader) LoadImages(dir string) *Loader {
 		fullPath := filepath.Clean(dir + "/" + entry.Name())
 
 		if entry.IsDir() {
+			// If we're on the root folder (where all sprites are placed),
+			// sprites are not part of an animation group. When a subfolder is found,
+			// an animation group is created.
+			//
+			// If an animation group is already set, further subfolders will be ignored.
+			if animationGroup == EmptyAnimationGroup {
+				l.LoadImages(fullPath, entry.Name())
+			}
 			continue
 		}
 
@@ -170,7 +181,7 @@ func (l *Loader) LoadImages(dir string) *Loader {
 		if l.loadAllImagesInMemory {
 			imgHandle = img
 		}
-		imgInfo := imageinfo.New(entry.Name(), fullPath, size.New(width, height), imgHandle, extensions.SupportedExtension(ext))
+		imgInfo := imageinfo.New(animationGroup, entry.Name(), fullPath, size.New(width, height), imgHandle, extensions.SupportedExtension(ext))
 		l.images[fullPath] = imgInfo
 
 		existingWidth, ok := l.widths[width]

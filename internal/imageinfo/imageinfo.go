@@ -13,20 +13,22 @@ import (
 )
 
 type ImageInfo struct {
-	Name string
-	Path string
-	Size size.Size
-	img  image.Image
-	ext  extensions.SupportedExtension
+	AnimationGroup string
+	Name           string
+	Path           string
+	Size           size.Size
+	img            image.Image
+	ext            extensions.SupportedExtension
 }
 
-func New(name string, path string, size size.Size, img image.Image, ext extensions.SupportedExtension) *ImageInfo {
+func New(animationGroup, name, path string, size size.Size, img image.Image, ext extensions.SupportedExtension) *ImageInfo {
 	return &ImageInfo{
-		Name: name,
-		Path: path,
-		Size: size,
-		img:  img,
-		ext:  ext,
+		AnimationGroup: animationGroup,
+		Name:           name,
+		Path:           path,
+		Size:           size,
+		img:            img,
+		ext:            ext,
 	}
 }
 

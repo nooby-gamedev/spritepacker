@@ -16,6 +16,8 @@ import (
 )
 
 type SpriteName string
+type SpriteAnimationGroupName string
+
 type DrawableImage interface {
 	Set(x int, y int, clr color.Color)
 	Bounds() image.Rectangle
@@ -67,12 +69,12 @@ func New(spritePackImage, spritePackJson string) (*SpritePackReader, error) {
 // If the sprite was not found, it returns ErrSpriteNotFound.
 //
 // If the sprite sheet has not been loaded, it returns ErrSpriteSheetNodLoaded.
-func (s *SpritePackReader) DrawSprite(name SpriteName, dst draw.Image, dstX, dstY int) error {
+func (s *SpritePackReader) DrawSprite(spriteNormalizedName SpriteName, dst draw.Image, dstX, dstY int) error {
 	if s.spritePackImage == nil {
 		return ErrSpriteSheetNodLoaded
 	}
 
-	sprite := s.spritePack.Sprite(string(name))
+	sprite := s.spritePack.Sprite(string(spriteNormalizedName))
 	if sprite == nil {
 		return ErrSpriteNotFound
 	}
@@ -82,6 +84,23 @@ func (s *SpritePackReader) DrawSprite(name SpriteName, dst draw.Image, dstX, dst
 
 	draw.Draw(dst, dstRect, s.spritePackImage, srcPoint, 0)
 	return nil
+}
+
+// Returns a new animation group
+func (s *SpritePackReader) AnimationGroup(animationGroupName SpriteAnimationGroupName, targetFPS int) (*AnimationGroup, error) {
+	sprites, ok := s.spritePack.AnimationGroups[string(animationGroupName)]
+	if !ok {
+		return nil, ErrAnimationGroupNotFound
+	}
+	group := &AnimationGroup{
+		name:          animationGroupName,
+		sprites:       s.spritePack.SearchSpritesByName(sprites...),
+		targetFPS:     targetFPS,
+		ticks:         0,
+		currentSprite: 0,
+		s:             s,
+	}
+	return group, nil
 }
 
 // Reload the sprite pack json
