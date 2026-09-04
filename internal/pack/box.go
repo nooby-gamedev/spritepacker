@@ -1,13 +1,13 @@
 package pack
 
 import (
-	"image/color"
+	"fmt"
+	"image"
 
 	"github.com/nooby-gamedev/spritepacker/internal/coordinates"
 	"github.com/nooby-gamedev/spritepacker/internal/imageinfo"
 	"github.com/nooby-gamedev/spritepacker/internal/size"
 
-	"github.com/google/uuid"
 	"github.com/rs/zerolog/log"
 )
 
@@ -21,7 +21,8 @@ const (
 
 // A Pack is composed of boxes.
 type Box struct {
-	// Can be used to recognize different boxes
+	// Can be used to recognize different boxes.
+	// By setting id to the packCoordinates, it becomes easier to troubleshoot.
 	id string
 	// Defines the packCoordinates where the box is placed
 	packCoordinates coordinates.Coordinates
@@ -35,8 +36,9 @@ type Box struct {
 
 func newBox(size size.Size, packCoordinates coordinates.Coordinates, boxType BoxType) *Box {
 
+	id := fmt.Sprintf("%dx%d", packCoordinates.X, packCoordinates.Y)
 	return &Box{
-		id:              uuid.NewString(),
+		id:              id, //uuid.NewString(),
 		size:            size,
 		packCoordinates: packCoordinates,
 		boxType:         boxType,
@@ -104,7 +106,7 @@ func (b *Box) setImageInfo(imgInfo *imageinfo.ImageInfo) (freeBoxes []*Box) {
 		if rWidth > 0 {
 			box := newBox(
 				size.New(rWidth, rHeight),
-				coordinates.New(rX+b.x(), rY+b.y()),
+				coordinates.New(rX+b.left(), rY+b.top()),
 				RightBox,
 			)
 			freeBoxes = append(freeBoxes, box)
@@ -122,7 +124,7 @@ func (b *Box) setImageInfo(imgInfo *imageinfo.ImageInfo) (freeBoxes []*Box) {
 		if bHeight > 0 {
 			box := newBox(
 				size.New(bWidth, bHeight),
-				coordinates.New(bX+b.x(), bY+b.y()),
+				coordinates.New(bX+b.left(), bY+b.top()),
 				BottomBox,
 			)
 			freeBoxes = append(freeBoxes, box)
@@ -142,7 +144,7 @@ func (b *Box) setImageInfo(imgInfo *imageinfo.ImageInfo) (freeBoxes []*Box) {
 // Check if imgInfo can fit in the current box.
 //
 // Panics if imgInfo is nil.
-func (b *Box) canFit(imgInfo *imageinfo.ImageInfo) (canFit bool, coveredArea float32) {
+func (b *Box) canFit(imgInfo *imageinfo.ImageInfo) (canFit bool, totCoveredArea float32) {
 	if imgInfo == nil {
 		log.Fatal().Msg("fatal error: imgInfo cannot be nil on calling canFit")
 	}
@@ -154,9 +156,18 @@ func (b *Box) canFit(imgInfo *imageinfo.ImageInfo) (canFit bool, coveredArea flo
 
 	boxArea := float32(b.area())
 	imgArea := float32(imgInfo.Area())
-	coveredArea = (100 / boxArea) * imgArea
 
-	return true, coveredArea
+	boxWidth := float32(b.width())
+	boxHeight := float32(b.height())
+
+	imgWidth := float32(imgInfo.Width())
+	imgHeight := float32(imgInfo.Height())
+
+	coveredWidth := (100 / boxWidth) * imgWidth
+	coveredHeight := (100 / boxHeight) * imgHeight
+	coveredArea := (100 / boxArea) * imgArea
+
+	return true, (coveredWidth + coveredHeight + coveredArea) / 3
 }
 
 func (b *Box) imageHasBeenSet() bool {
@@ -171,34 +182,6 @@ func (b *Box) isInRange(x, y int) bool {
 	return x >= 0 && x < b.width() && y >= 0 && y < b.height()
 }
 
-// Returns the color at X,Y coordinates.
-//
-// The input parameters MUST be the RELATIVE coordinates.
-// The coordinates are then automatically converted to the ABSOLUTE coordinates.
-//
-// If coordinates are out of range, it panics.
-// If the image has not been set, it panics.
-func (b *Box) colorAt(x, y int) (clr color.Color, absoluteCoordinates coordinates.Coordinates) {
-	// (x < 0 || x >= b.width()) || (y < 0 || y >= b.height())
-	if !b.isInRange(x, y) {
-		log.Fatal().
-			Str("box_id", b.id).
-			Int("param_x", x).
-			Int("param_y", y).
-			Int("box_width", b.width()).
-			Msg("fatal error: cannot retrieve the color at specified position as the coordinates are invalid")
-	}
-
-	if !b.imageHasBeenSet() {
-		log.Fatal().
-			Str("box_id", b.id).
-			Msg("fatal error: unable to retrieve the color at specified position as the image has not been set")
-	}
-
-	clr = b.imgInfo.ColorAt(x, y)
-	return clr, b.absoluteCoordinates(x, y)
-}
-
 func (b *Box) absoluteCoordinates(x, y int) coordinates.Coordinates {
 	return coordinates.New(x+b.packCoordinates.X, y+b.packCoordinates.Y)
 }
@@ -211,12 +194,12 @@ func (b *Box) isBorder(x, y int) bool {
 }
 
 // Returns b.packCoordinates.X
-func (b *Box) x() int {
+func (b *Box) left() int {
 	return b.packCoordinates.X
 }
 
 // Returns b.packCoordinates.Y
-func (b *Box) y() int {
+func (b *Box) top() int {
 	return b.packCoordinates.Y
 }
 
@@ -231,13 +214,13 @@ func (b *Box) height() int {
 }
 
 // Returns b.packCoordinates.X + b.size.Width
-func (b *Box) dx() int {
-	return b.x() + b.width()
+func (b *Box) right() int {
+	return b.left() + b.width()
 }
 
 // Returns b.packCoordinates.Y + b.size.Height
-func (b *Box) dy() int {
-	return b.y() + b.height()
+func (b *Box) bottom() int {
+	return b.top() + b.height()
 }
 
 // Returns the image name
@@ -256,4 +239,8 @@ func (b *Box) close() {
 	}
 	b.imgInfo.Close()
 	b.imgInfo = nil
+}
+
+func (b *Box) image() image.Image {
+	return b.imgInfo.Image()
 }

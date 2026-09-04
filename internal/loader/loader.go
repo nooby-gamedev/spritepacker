@@ -15,6 +15,7 @@ import (
 	"github.com/nooby-gamedev/spritepacker/internal/pack"
 	"github.com/nooby-gamedev/spritepacker/internal/size"
 	"github.com/nooby-gamedev/spritepacker/pkg/extensions"
+	"github.com/nooby-gamedev/spritepacker/pkg/spritepack"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -239,7 +240,7 @@ func (l *Loader) LoadImages(dir string) *Loader {
 
 // CreateSpritePack must be called AFTER LoadImages(dir string),
 // otherwise it panics.
-func (l *Loader) CreateSpritePack(savePath string, drawBoxBorders bool) {
+func (l *Loader) CreateSpritePack(savePath string, drawBoxBorders bool) *spritepack.SpritePack {
 	if !l.imagesLoaded {
 		log.Fatal().Msg("fatal error: LoadImages must be called before CreateSpritePack")
 	}
@@ -266,5 +267,5 @@ func (l *Loader) CreateSpritePack(savePath string, drawBoxBorders bool) {
 	}
 
 	log.Info().Str("save_path", savePath).Msg("finalizing pack")
-	p.Finalize(savePath)
+	return p.Finalize(savePath)
 }

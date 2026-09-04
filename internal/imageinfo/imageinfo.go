@@ -58,6 +58,10 @@ func (i *ImageInfo) loadImage() {
 			Msg("fatal error: the image extension is either invalid or not supported yet. Unable to reload the image")
 	}
 }
+func (i *ImageInfo) Image() image.Image {
+	i.loadImage()
+	return i.img
+}
 func (i *ImageInfo) ColorAt(x, y int) color.Color {
 	i.loadImage()
 	return i.img.At(x, y)

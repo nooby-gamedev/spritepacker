@@ -10,14 +10,12 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"sync"
 
 	"github.com/rs/zerolog/log"
 )
 
 type SpritePack struct {
 	Sprites map[string]Sprite `json:"sprites"`
-	mu      sync.Mutex
 }
 
 type Sprite struct {
@@ -79,8 +77,6 @@ func (s *SpritePack) normalizeSpriteName(name string) string {
 }
 
 func (s *SpritePack) NewSprite(name string, x, y, width, height int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	normalizedName := s.normalizeSpriteName(name)
 
 	nameIsValid := false
@@ -106,8 +102,6 @@ func (s *SpritePack) ImportBuf(buf []byte) error {
 	return json.Unmarshal(buf, s)
 }
 func (s *SpritePack) Import(importPath string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	log.Info().
 		Str("full_path", importPath).
 		Msg("importing sprite pack as JSON")
@@ -128,31 +122,17 @@ func (s *SpritePack) Import(importPath string) error {
 	return nil
 }
 
-// Saves the SpritePack as JSON.
-// It will also create a Go file with the sprite constants.
-func (s *SpritePack) Export(savePath string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *SpritePack) ExportJson(savePath string) error {
 	extJson := ".json"
-	extGo := ".go"
-
-	var savePathJson, savePathGo string
-	savePathJson = savePath
-	savePathGo = savePath
-
-	if !strings.HasSuffix(savePathJson, extJson) {
-		savePathJson += extJson
-	}
-
-	if !strings.HasSuffix(savePathGo, extGo) {
-		savePathGo += extGo
+	if !strings.HasSuffix(savePath, extJson) {
+		savePath += extJson
 	}
 
 	log.Info().
-		Str("full_path", savePathJson).
+		Str("full_path", savePath).
 		Msg("exporting sprite pack as JSON")
 
-	handleJson, err := os.Create(savePathJson)
+	handleJson, err := os.Create(savePath)
 	if err != nil {
 		return err
 	}
@@ -164,14 +144,28 @@ func (s *SpritePack) Export(savePath string) error {
 		return err
 	}
 
+	return nil
+}
+
+func (s *SpritePack) ExportGoConstants(savePath string) error {
+	extGo := ".go"
+
+	if !strings.HasSuffix(savePath, extGo) {
+		savePath += extGo
+	}
+
+	log.Info().
+		Str("full_path", savePath).
+		Msg("exporting sprite pack as Go constants")
+
 	template := s.createGoTemplate()
-	handleGo, err := os.Create(savePathGo)
+	handle, err := os.Create(savePath)
 	if err != nil {
 		return err
 	}
-	defer handleGo.Close()
+	defer handle.Close()
 
-	_, err = handleGo.WriteString(template)
+	_, err = handle.WriteString(template)
 	if err != nil {
 		return err
 	}
@@ -201,8 +195,6 @@ func (s *SpritePack) createGoTemplate() string {
 }
 
 func (s *SpritePack) Sprite(spriteNormalizedName string) *Sprite {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	existing, ok := s.Sprites[spriteNormalizedName]
 	if !ok {
 		return nil
@@ -211,7 +203,7 @@ func (s *SpritePack) Sprite(spriteNormalizedName string) *Sprite {
 }
 
 func (s Sprite) Rect() image.Rectangle {
-	return image.Rect(s.X, s.Y, s.Dx(), s.Dy())
+	return image.Rect(s.X, s.Y, s.Right(), s.Bottom())
 }
 func (s Sprite) Point() image.Point {
 	return image.Point{
@@ -221,11 +213,11 @@ func (s Sprite) Point() image.Point {
 }
 
 // Returns X + Width
-func (s Sprite) Dx() int {
+func (s Sprite) Right() int {
 	return s.X + s.Width
 }
 
 // Returns Y + Height
-func (s Sprite) Dy() int {
+func (s Sprite) Bottom() int {
 	return s.Y + s.Height
 }

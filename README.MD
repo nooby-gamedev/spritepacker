@@ -19,21 +19,31 @@ import (
 	"github.com/nooby-gamedev/spritepacker/internal/pack"
 
 	"github.com/rs/zerolog"
+    "github.com/rs/zerolog/log"
 )
 
 func main() {
+    savePath := "/tmp/spritesheet"
 	imgLoader := loader.New(loader.LoadAllImagesInMemory, zerolog.DebugLevel)
 	// Load sprites under /tmp/sprites and save the sprite pack as /tmp/spritesheet.png.
-    // A "spritesheet.json" and "spritesheet.go" that contain the sprite pack info will also be created.
-    imgLoader.
+    spritePack := imgLoader.
 		LoadImages("/tmp/sprites").
 		CreateSpritePack("/tmp/spritesheet", pack.DontDrawBoxBorders)
+
+    // Export spritesheet.go
+	if err := spritePack.ExportGoConstants(savePath); err != nil {
+		log.Fatal().Err(err).Msg("fatal error")
+	}
+    // Export spritesheet.json
+	if err := spritePack.ExportJson(savePath); err != nil {
+		log.Fatal().Err(err).Msg("fatal error")
+	}
 }
 ```
 
 ## Sprite Packer Output
 As already mentioned, **Sprite Packer** create a PNG stylesheet using several images as source.  
-However, the PNG is not the only output file: in fact, two more files will be created:
+However, the PNG is not the only output file: in fact, two more files can be created:
 1. **spritesheet.json**: a JSON file that contains all the coordinates and sizes of the single sprites.
 2. **spritesheet.go**: a simple Go file that contains all the constants that can be used to retrieve specific sprites, using **pkg/spritepackreader**
 

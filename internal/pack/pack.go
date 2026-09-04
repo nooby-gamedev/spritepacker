@@ -1,8 +1,10 @@
 package pack
 
 import (
+	"fmt"
 	"image"
 	"image/color"
+	"image/draw"
 	"image/png"
 	"os"
 	"strings"
@@ -75,6 +77,8 @@ type Pack struct {
 	// Contains all the boxes with the image set
 	consumedBoxes map[string]*Box
 
+	consumedBoxesQueue []string
+
 	// If true, the final image will have box borders (dev only)
 	drawBoxBorders bool
 	mu             sync.Mutex
@@ -93,15 +97,16 @@ func New(maxImageSize, totImageSize size.Size, packCoordinates coordinates.Coord
 	}
 
 	p := &Pack{
-		maxImageSize:     maxImageSize,
-		totImageSize:     totImageSize,
-		packCoordinates:  packCoordinates,
-		packOrientation:  orientation,
-		packSize:         packSize,
-		consumedPackSize: size.New(0, 0),
-		freeBoxes:        make(map[string]*Box, 0),
-		consumedBoxes:    make(map[string]*Box, 0),
-		drawBoxBorders:   drawBoxBorders,
+		maxImageSize:       maxImageSize,
+		totImageSize:       totImageSize,
+		packCoordinates:    packCoordinates,
+		packOrientation:    orientation,
+		packSize:           packSize,
+		consumedPackSize:   size.New(0, 0),
+		freeBoxes:          make(map[string]*Box, 0),
+		consumedBoxes:      make(map[string]*Box, 0),
+		consumedBoxesQueue: make([]string, 0),
+		drawBoxBorders:     drawBoxBorders,
 	}
 
 	log.Debug().
@@ -126,8 +131,10 @@ func (p *Pack) InsertImage(imgInfo *imageinfo.ImageInfo) {
 	}
 
 	var selectedBox *Box
-	var boxCoveredArea float32
-	var wouldUpdateConsumedPackSize bool
+	var selectedBoxCoveredArea float32
+	var selectedBoxIncreasesFinalImageSize bool
+
+	var selectedBoxReason string
 
 	for _, freeBox := range p.freeBoxes {
 		canFit, coveredArea := freeBox.canFit(imgInfo)
@@ -135,35 +142,27 @@ func (p *Pack) InsertImage(imgInfo *imageinfo.ImageInfo) {
 			log.Debug().
 				Int("img_width", imgInfo.Width()).
 				Int("img_height", imgInfo.Height()).
-				Int("box_x", freeBox.x()).
-				Int("box_y", freeBox.y()).
+				Int("box_x", freeBox.left()).
+				Int("box_y", freeBox.top()).
 				Int("box_width", freeBox.width()).
 				Int("box_height", freeBox.height()).
 				Str("box_type", string(freeBox.boxType)).
 				Msg("box cannot fit image")
 			continue
 		}
-		if selectedBox == nil {
-			boxCoveredArea = coveredArea
+
+		increasesFinalImageSize := p.increasesFinalImageSize(freeBox, imgInfo)
+		selectBox := (selectedBox == nil) ||
+			(!increasesFinalImageSize && selectedBoxIncreasesFinalImageSize) ||
+			(!increasesFinalImageSize && !selectedBoxIncreasesFinalImageSize && coveredArea > selectedBoxCoveredArea) ||
+			(increasesFinalImageSize && selectedBoxIncreasesFinalImageSize && coveredArea > selectedBoxCoveredArea)
+
+		if selectBox {
+			selectedBoxCoveredArea = coveredArea
 			selectedBox = freeBox
-			wouldUpdateConsumedPackSize = p.wouldUpdateConsumedPackSize(freeBox, imgInfo)
-			continue
+			selectedBoxIncreasesFinalImageSize = increasesFinalImageSize
 		}
 
-		// If the previous box would've updated the "consumedPackSize", but the
-		// current box doesn't, then use the current box
-		if wouldUpdateConsumedPackSize && !p.wouldUpdateConsumedPackSize(freeBox, imgInfo) {
-			boxCoveredArea = coveredArea
-			selectedBox = freeBox
-			wouldUpdateConsumedPackSize = false
-			continue
-		}
-
-		if coveredArea > boxCoveredArea {
-			boxCoveredArea = coveredArea
-			selectedBox = freeBox
-			wouldUpdateConsumedPackSize = p.wouldUpdateConsumedPackSize(freeBox, imgInfo)
-		}
 	}
 
 	if selectedBox == nil {
@@ -176,16 +175,21 @@ func (p *Pack) InsertImage(imgInfo *imageinfo.ImageInfo) {
 			Msg("fatal error: the image cannot fit into any box")
 	}
 
+	if selectedBox.id == "912x267" {
+		fmt.Printf("\n\n%s\n\n", selectedBoxReason)
+	}
+
 	log.Debug().
-		Int("box_x", selectedBox.x()).
-		Int("box_y", selectedBox.y()).
+		Int("box_x", selectedBox.left()).
+		Int("box_y", selectedBox.top()).
 		Int("box_width", selectedBox.width()).
 		Int("box_height", selectedBox.height()).
 		Str("box_type", string(selectedBox.boxType)).
 		Str("image_full_path", imgInfo.Path).
 		Int("img_width", imgInfo.Width()).
 		Int("img_height", imgInfo.Height()).
-		Float32("box_covered_area", boxCoveredArea).
+		Str("selected_reason", selectedBoxReason).
+		Float32("box_covered_area", selectedBoxCoveredArea).
 		Msg("a free box has been selected for the image")
 
 	newFreeBoxes := selectedBox.setImageInfo(imgInfo)
@@ -193,14 +197,14 @@ func (p *Pack) InsertImage(imgInfo *imageinfo.ImageInfo) {
 	p.consumeFreeBox(selectedBox)
 	p.addFreeBoxes(newFreeBoxes...)
 	p.updateConsumedPackSize(selectedBox)
+
 }
 
 // Creates the final packed image as PNG.
 // If the .png extension is not present, it's automatically added.
 //
 // In case of any error, it panics.
-func (p *Pack) Finalize(savePath string) {
-
+func (p *Pack) Finalize(savePath string) *spritepack.SpritePack {
 	spritePack := spritepack.New()
 	var savePathPng string
 
@@ -229,25 +233,35 @@ func (p *Pack) Finalize(savePath string) {
 	imgSize := image.Rect(0, 0, p.width(), p.height())
 	img := image.NewRGBA(imgSize)
 
-	for _, box := range p.consumedBoxes {
-		for x := range box.width() {
-			for y := range box.height() {
-				clr, absoluteCoordinates := box.colorAt(x, y)
-
-				if p.drawBoxBorders {
-					if box.isBorder(x, y) {
-						clr = color.RGBA{R: 0, G: 255, B: 255, A: 255}
-					}
-				}
-
-				img.Set(absoluteCoordinates.X, absoluteCoordinates.Y, clr)
-			}
+	for _, boxId := range p.consumedBoxesQueue {
+		box, ok := p.consumedBoxes[boxId]
+		if !ok {
+			log.Fatal().Str("box_id", boxId).Msg("fatal error: consumedBoxesQueue contains an ID that is not contained in consumedBoxes")
 		}
-		spritePack.NewSprite(box.imageName(), box.x(), box.y(), box.width(), box.height())
+
+		log.Info().Str("box_id", boxId).Str("img_name", box.imageName()).Msg("drawing box")
+
+		dstRect := image.Rect(box.left(), box.top(), box.right(), box.bottom())
+		draw.Draw(img, dstRect, box.image(), image.Point{X: 0, Y: 0}, 0)
+
+		spritePack.NewSprite(box.imageName(), box.left(), box.top(), box.width(), box.height())
 		box.close()
 	}
 
 	if p.drawBoxBorders {
+		for _, box := range p.consumedBoxes {
+			for x := range box.width() {
+				for y := range box.height() {
+					if !box.isBorder(x, y) {
+						continue
+					}
+					absoluteCoordinates := box.absoluteCoordinates(x, y)
+					clr := color.RGBA{R: 0, G: 255, B: 255, A: 255}
+					img.Set(absoluteCoordinates.X, absoluteCoordinates.Y, clr)
+				}
+			}
+		}
+
 		if len(p.freeBoxes) > 0 {
 			log.Debug().Msg("drawing box borders of free boxes")
 		}
@@ -291,9 +305,7 @@ func (p *Pack) Finalize(savePath string) {
 
 	log.Info().Str("save_path", savePathPng).Msg("Pack created successfully!")
 
-	if err := spritePack.Export(savePath); err != nil {
-		log.Error().Err(err).Msg("unexpected error occurred")
-	}
+	return spritePack
 }
 
 // Set the initial Free Box (same dimension as the pack).
@@ -320,20 +332,20 @@ func (p *Pack) updateConsumedPackSize(box *Box) {
 		log.Fatal().Str("box_id", box.id).Msg("fatal error: cannot call updateConsumedPackSize because the box has no image set")
 	}
 
-	if box.dx() > p.consumedPackSize.Width {
-		p.consumedPackSize.Width = box.dx()
+	if box.right() > p.consumedPackSize.Width {
+		p.consumedPackSize.Width = box.right()
 	}
 
-	if box.dy() > p.consumedPackSize.Height {
-		p.consumedPackSize.Height = box.dy()
+	if box.bottom() > p.consumedPackSize.Height {
+		p.consumedPackSize.Height = box.bottom()
 	}
 }
 
 // Returns true if the box would update the consumedPackSize.
 // This can be useful to use or discard a specific box.
-func (p *Pack) wouldUpdateConsumedPackSize(box *Box, img *imageinfo.ImageInfo) bool {
-	dx := box.x() + img.Width()
-	dy := box.y() + img.Height()
+func (p *Pack) increasesFinalImageSize(box *Box, img *imageinfo.ImageInfo) bool {
+	dx := box.left() + img.Width()
+	dy := box.top() + img.Height()
 	return dx > p.consumedPackSize.Width || dy > p.consumedPackSize.Height
 }
 
@@ -347,8 +359,8 @@ func (p *Pack) addFreeBoxes(boxes ...*Box) {
 			log.Fatal().Str("box_id", box.id).Msg("fatal error: the randomly generated box id has already been generated")
 		}
 		log.Debug().
-			Int("box_x", box.x()).
-			Int("box_y", box.y()).
+			Int("box_x", box.left()).
+			Int("box_y", box.top()).
 			Int("box_width", box.width()).
 			Int("box_height", box.height()).
 			Str("box_type", string(box.boxType)).
@@ -375,6 +387,7 @@ func (p *Pack) consumeFreeBox(box *Box) {
 			Msg("fatal error: cannot consume free box as the box has already been consumed")
 	}
 	p.consumedBoxes[box.id] = box
+	p.consumedBoxesQueue = append(p.consumedBoxesQueue, box.id)
 	delete(p.freeBoxes, box.id)
 }
 
