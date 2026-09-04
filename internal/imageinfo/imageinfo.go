@@ -6,8 +6,8 @@ import (
 	"image/png"
 	"os"
 
-	"github.com/nooby-gamedev/spritepacker/internal/extensions"
 	"github.com/nooby-gamedev/spritepacker/internal/size"
+	"github.com/nooby-gamedev/spritepacker/pkg/extensions"
 
 	"github.com/rs/zerolog/log"
 )
@@ -39,15 +39,6 @@ func (i *ImageInfo) loadImage() {
 
 	log.Debug().Str("full_path", i.Path).Msg("reloading the image")
 	handle, err := os.Open(i.Path)
-	closeHandle := func() {
-		if handle == nil {
-			return
-		}
-		if err := handle.Close(); err != nil {
-			log.Fatal().Err(err).Msg("fatal error: unable to close the handle")
-		}
-	}
-	defer closeHandle()
 	if err != nil {
 		log.Fatal().Err(err).Str("full_path", i.Path).Msg("fatal error: the image cannot be reloaded due to an unexpected error")
 	}

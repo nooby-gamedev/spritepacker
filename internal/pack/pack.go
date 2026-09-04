@@ -9,9 +9,9 @@ import (
 	"sync"
 
 	"github.com/nooby-gamedev/spritepacker/internal/coordinates"
-	"github.com/nooby-gamedev/spritepacker/internal/extensions"
 	"github.com/nooby-gamedev/spritepacker/internal/imageinfo"
 	"github.com/nooby-gamedev/spritepacker/internal/size"
+	"github.com/nooby-gamedev/spritepacker/pkg/extensions"
 	"github.com/nooby-gamedev/spritepacker/pkg/spritepack"
 
 	"github.com/rs/zerolog/log"
@@ -202,31 +202,25 @@ func (p *Pack) InsertImage(imgInfo *imageinfo.ImageInfo) {
 func (p *Pack) Finalize(savePath string) {
 
 	spritePack := spritepack.New()
+	var savePathPng string
 
-	if !strings.HasSuffix(savePath, string(extensions.Png)) {
-		savePath += string(extensions.Png)
+	savePathPng = savePath
+
+	if !strings.HasSuffix(savePathPng, string(extensions.Png)) {
+		savePathPng += string(extensions.Png)
 	}
 
 	if p.drawBoxBorders {
 		log.Warn().Msg("warning: drawBoxBorders is true. The final image will have box borders.")
 	}
 
-	handle, err := os.Create(savePath)
-	closeHandle := func() {
-		if handle == nil {
-			return
-		}
-		if err := handle.Close(); err != nil {
-			log.Fatal().Err(err).Msg("fatal error: unable to close the handle")
-		}
-	}
-	defer closeHandle()
-
+	handle, err := os.Create(savePathPng)
 	if err != nil {
 		log.Fatal().
 			Err(err).
-			Msg("fatal error: unable to")
+			Msg("fatal error: unable to finalize")
 	}
+	defer handle.Close()
 
 	log.Debug().
 		Str("pack_size", p.consumedPackSize.ToString()).
@@ -291,11 +285,11 @@ func (p *Pack) Finalize(savePath string) {
 	if err := png.Encode(handle, img); err != nil {
 		log.Fatal().
 			Err(err).
-			Str("save_path", savePath).
+			Str("save_path", savePathPng).
 			Msg("fatal error: unable to save the image as an unexpected error occurred")
 	}
 
-	log.Info().Str("save_path", savePath).Msg("Pack created successfully!")
+	log.Info().Str("save_path", savePathPng).Msg("Pack created successfully!")
 
 	if err := spritePack.Export(savePath); err != nil {
 		log.Error().Err(err).Msg("unexpected error occurred")

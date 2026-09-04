@@ -11,10 +11,10 @@ import (
 	"time"
 
 	"github.com/nooby-gamedev/spritepacker/internal/coordinates"
-	"github.com/nooby-gamedev/spritepacker/internal/extensions"
 	"github.com/nooby-gamedev/spritepacker/internal/imageinfo"
 	"github.com/nooby-gamedev/spritepacker/internal/pack"
 	"github.com/nooby-gamedev/spritepacker/internal/size"
+	"github.com/nooby-gamedev/spritepacker/pkg/extensions"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -122,20 +122,11 @@ func (l *Loader) LoadImages(dir string) *Loader {
 
 		log.Info().Str("file", fullPath).Str("ext", ext).Msg("loading file with a supported extension")
 		handle, err := os.Open(fullPath)
-		closeHandle := func() {
-			if handle == nil {
-				return
-			}
-			if err := handle.Close(); err != nil {
-				log.Fatal().Err(err).Msg("fatal error: unable to close the handle")
-			}
-		}
-		defer closeHandle()
-
 		if err != nil {
 			log.Error().Err(err).Str("file", fullPath).Msg("an error occurred while opening file")
 			continue
 		}
+		defer handle.Close()
 
 		var img image.Image
 		switch extensions.SupportedExtension(ext) {
