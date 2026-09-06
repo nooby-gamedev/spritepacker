@@ -269,6 +269,13 @@ func (s Sprite) Point() image.Point {
 	}
 }
 
+func (s Sprite) Left() int {
+	return s.X
+}
+func (s Sprite) Top() int {
+	return s.Y
+}
+
 // Returns X + Width
 func (s Sprite) Right() int {
 	return s.X + s.Width

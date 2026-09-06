@@ -1,7 +1,6 @@
 package pack
 
 import (
-	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -173,10 +172,6 @@ func (p *Pack) InsertImage(imgInfo *imageinfo.ImageInfo) {
 			Int("consumed_box_count", len(p.consumedBoxes)).
 			Str("full_path", imgInfo.Path).
 			Msg("fatal error: the image cannot fit into any box")
-	}
-
-	if selectedBox.id == "912x267" {
-		fmt.Printf("\n\n%s\n\n", selectedBoxReason)
 	}
 
 	log.Debug().

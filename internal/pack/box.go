@@ -157,17 +157,9 @@ func (b *Box) canFit(imgInfo *imageinfo.ImageInfo) (canFit bool, totCoveredArea 
 	boxArea := float32(b.area())
 	imgArea := float32(imgInfo.Area())
 
-	boxWidth := float32(b.width())
-	boxHeight := float32(b.height())
-
-	imgWidth := float32(imgInfo.Width())
-	imgHeight := float32(imgInfo.Height())
-
-	coveredWidth := (100 / boxWidth) * imgWidth
-	coveredHeight := (100 / boxHeight) * imgHeight
 	coveredArea := (100 / boxArea) * imgArea
 
-	return true, (coveredWidth + coveredHeight + coveredArea) / 3
+	return true, coveredArea
 }
 
 func (b *Box) imageHasBeenSet() bool {

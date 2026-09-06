@@ -13,6 +13,8 @@ import (
 
 	"github.com/nooby-gamedev/spritepacker/pkg/extensions"
 	"github.com/nooby-gamedev/spritepacker/pkg/spritepack"
+	"github.com/nooby-gamedev/spritepacker/pkg/transformation/transformation2d"
+	"github.com/rs/zerolog/log"
 )
 
 type SpriteName string
@@ -69,7 +71,7 @@ func New(spritePackImage, spritePackJson string) (*SpritePackReader, error) {
 // If the sprite was not found, it returns ErrSpriteNotFound.
 //
 // If the sprite sheet has not been loaded, it returns ErrSpriteSheetNodLoaded.
-func (s *SpritePackReader) DrawSprite(spriteNormalizedName SpriteName, dst draw.Image, dstX, dstY int) error {
+func (s *SpritePackReader) DrawSprite(spriteNormalizedName SpriteName, dst draw.Image, dstX, dstY int, rotation float64) error {
 	if s.spritePackImage == nil {
 		return ErrSpriteSheetNodLoaded
 	}
@@ -79,26 +81,45 @@ func (s *SpritePackReader) DrawSprite(spriteNormalizedName SpriteName, dst draw.
 		return ErrSpriteNotFound
 	}
 
-	dstRect := image.Rect(dstX, dstY, (dstX + sprite.Width), (dstY + sprite.Height))
-	srcPoint := sprite.Point()
+	subImg, ok := s.spritePackImage.(interface {
+		SubImage(r image.Rectangle) image.Image
+	})
+	if !ok {
+		return ErrSpritesheetNotValidPng
+	}
 
-	draw.Draw(dst, dstRect, s.spritePackImage, srcPoint, 0)
+	transform2d := transformation2d.New(subImg.SubImage(sprite.Rect()))
+	rotatedImg := transform2d.Rotate(rotation)
+
+	dstRect := image.Rect(dstX, dstY, (dstX + rotatedImg.Bounds().Dx()), (dstY + rotatedImg.Bounds().Dy()))
+	srcPoint := image.Point{X: rotatedImg.Bounds().Min.X, Y: rotatedImg.Bounds().Min.Y}
+
+	draw.Draw(dst, dstRect, rotatedImg, srcPoint, 0)
+
+	// dstRect := image.Rect(dstX, dstY, (dstX + sprite.Width), (dstY + sprite.Height))
+	// srcPoint := sprite.Point()
+
+	// draw.Draw(dst, dstRect, s.spritePackImage, srcPoint, 0)
 	return nil
 }
 
-// Returns a new animation group
+// Returns a new animation group.
+//
+// If targetFPS is <= 0, it panicsl
 func (s *SpritePackReader) AnimationGroup(animationGroupName SpriteAnimationGroupName, targetFPS int) (*AnimationGroup, error) {
+	if targetFPS <= 0 {
+		log.Fatal().Msg("fatal error: targetFPS must be greater than 0")
+	}
 	sprites, ok := s.spritePack.AnimationGroups[string(animationGroupName)]
 	if !ok {
 		return nil, ErrAnimationGroupNotFound
 	}
 	group := &AnimationGroup{
-		name:          animationGroupName,
-		sprites:       s.spritePack.SearchSpritesByName(sprites...),
-		targetFPS:     targetFPS,
-		ticks:         0,
-		currentSprite: 0,
-		s:             s,
+		name:             animationGroupName,
+		sprites:          s.spritePack.SearchSpritesByName(sprites...),
+		animations:       make(map[string]*Animation, 0),
+		spritePackReader: s,
+		targetFPS:        targetFPS,
 	}
 	return group, nil
 }
