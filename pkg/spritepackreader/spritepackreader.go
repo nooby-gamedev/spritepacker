@@ -14,6 +14,7 @@ import (
 	"github.com/nooby-gamedev/spritepacker/pkg/extensions"
 	"github.com/nooby-gamedev/spritepacker/pkg/spritepack"
 	"github.com/nooby-gamedev/spritepacker/pkg/transformation/transformation2d"
+	"github.com/nooby-gamedev/spritepacker/pkg/transformation/transformation2doptions"
 	"github.com/rs/zerolog/log"
 )
 
@@ -66,12 +67,12 @@ func New(spritePackImage, spritePackJson string) (*SpritePackReader, error) {
 	return s, nil
 }
 
-// Draws.
-//
+// Draws the sprite.
+// If cacheCustomKey is not empty, it uses caches
 // If the sprite was not found, it returns ErrSpriteNotFound.
 //
 // If the sprite sheet has not been loaded, it returns ErrSpriteSheetNodLoaded.
-func (s *SpritePackReader) DrawSprite(spriteNormalizedName SpriteName, dst draw.Image, dstX, dstY int, rotation float64) error {
+func (s *SpritePackReader) DrawSprite(cacheCustomKey string, spriteNormalizedName SpriteName, dst draw.Image, dstX, dstY int, opts transformation2doptions.Transformation2DOptions) error {
 	if s.spritePackImage == nil {
 		return ErrSpriteSheetNodLoaded
 	}
@@ -89,17 +90,17 @@ func (s *SpritePackReader) DrawSprite(spriteNormalizedName SpriteName, dst draw.
 	}
 
 	transform2d := transformation2d.New(subImg.SubImage(sprite.Rect()))
-	rotatedImg := transform2d.Rotate(rotation)
+	transformedImg, err := transform2d.Transform(opts)
 
-	dstRect := image.Rect(dstX, dstY, (dstX + rotatedImg.Bounds().Dx()), (dstY + rotatedImg.Bounds().Dy()))
-	srcPoint := image.Point{X: rotatedImg.Bounds().Min.X, Y: rotatedImg.Bounds().Min.Y}
+	if err != nil {
+		return err
+	}
 
-	draw.Draw(dst, dstRect, rotatedImg, srcPoint, 0)
+	dstRect := image.Rect(dstX, dstY, (dstX + transformedImg.Bounds().Dx()), (dstY + transformedImg.Bounds().Dy()))
+	srcPoint := image.Point{X: transformedImg.Bounds().Min.X, Y: transformedImg.Bounds().Min.Y}
 
-	// dstRect := image.Rect(dstX, dstY, (dstX + sprite.Width), (dstY + sprite.Height))
-	// srcPoint := sprite.Point()
+	draw.Draw(dst, dstRect, transformedImg, srcPoint, 0)
 
-	// draw.Draw(dst, dstRect, s.spritePackImage, srcPoint, 0)
 	return nil
 }
 

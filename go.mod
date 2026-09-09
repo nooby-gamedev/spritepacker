@@ -3,6 +3,7 @@ module github.com/nooby-gamedev/spritepacker
 go 1.25.0
 
 require (
+	github.com/google/uuid v1.6.0
 	github.com/rs/zerolog v1.35.1
 )
 

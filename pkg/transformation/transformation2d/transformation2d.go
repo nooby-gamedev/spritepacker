@@ -2,11 +2,12 @@ package transformation2d
 
 import (
 	"image"
-	"image/color"
+	"image/draw"
 	"math"
 
 	"github.com/nooby-gamedev/spritepacker/pkg/transformation/pointf"
 	"github.com/nooby-gamedev/spritepacker/pkg/transformation/rectf"
+	"github.com/nooby-gamedev/spritepacker/pkg/transformation/transformation2doptions"
 	"github.com/rs/zerolog/log"
 )
 
@@ -14,6 +15,13 @@ type Transformation2D struct {
 	originalImage    image.Image
 	transformedImage image.Image
 	origin           pointf.PointF
+
+	// It carries the current transform options.
+	// It's used to determine whether transformations have to be made or not.
+	//
+	// For example, if it contains a Rotation of 90° and the Transform method
+	// receives a Rotation of 180°, the image would be rotated by 90°.
+	currentOpts transformation2doptions.Transformation2DOptions
 }
 
 // Returns a new instance of Transformation2D.
@@ -68,7 +76,7 @@ func (t *Transformation2D) rotatePointF(pt pointf.PointF, radians float64) point
 }
 func (t *Transformation2D) rotatePoint(pt image.Point, radians float64) image.Point {
 	pointF := t.rotatePointF(pointf.NewFromPoint(pt), radians)
-	return t.nearestNeighborPointF(pointF)
+	return pointF.ToPointRound()
 }
 func (t *Transformation2D) rotateRectF(r rectf.RectF, radians float64) rectf.RectF {
 	pts := [4]pointf.PointF{
@@ -76,28 +84,80 @@ func (t *Transformation2D) rotateRectF(r rectf.RectF, radians float64) rectf.Rec
 		t.rotatePointF(r.TopRight(), radians),
 		t.rotatePointF(r.BottomLeft(), radians),
 		t.rotatePointF(r.BottomRight(), radians)}
-	return rectf.NewRectFromPointF(pts)
+	return rectf.NewRectFromPointF(pts, rectf.CreateRectWithValidPixelsOnly)
 }
 func (t *Transformation2D) rotateRect(r image.Rectangle, radians float64) image.Rectangle {
-	rectF := t.rotateRectF(rectf.NewFromRect(r), radians)
-	r2 := t.nearestNeighborRectF(rectF)
-	// RectF contains only real pixels, while image.Rectangle doesn't.
-	//
-	// A 10x10 image would be:
-	//
-	// RectF: 0,0 -> 9,9
-	// image.Rectangle: 0,0 -> 10,10
-	//
-	// but the 10,10 pixel are NOT usable.
-	//
-	// RectF uses pixels only for calculations.
-	r2.Max = r2.Max.Add(image.Pt(1, 1))
-	return r2
+	return t.rotateRectF(rectf.NewFromRect(r), radians).ToRect()
+}
+
+// If transformedImage is NOT nil, a transformation already happened.
+// If so, the originalImage will become the transformed image, so that new transformations
+// will happens from that point.
+//
+// If transformedImage is NIL, nothing happens.
+func (t *Transformation2D) setOriginalImageIfNecessary() {
+	if t.transformedImage != nil {
+		t.originalImage = image.NewRGBA(t.transformedImage.Bounds())
+		draw.Draw(t.originalImage.(draw.Image), t.originalImage.Bounds(), t.transformedImage, image.Pt(0, 0), draw.Over)
+	}
+}
+
+func (t *Transformation2D) FlipImage(flipHorizontally, flipVertically bool) {
+	t.setOriginalImageIfNecessary()
+
+	if t.transformedImage == nil {
+		t.transformedImage = image.NewRGBA(t.originalImage.Bounds())
+	}
+
+	centerImage := t.centerImage(t.transformedImage).ToPointRound()
+
+	if flipHorizontally {
+		left := t.transformedImage.Bounds().Min.X
+		top := t.transformedImage.Bounds().Min.Y
+		bottom := t.transformedImage.Bounds().Max.Y - 1
+		right := t.transformedImage.Bounds().Max.X - 1
+
+		counter := 0
+		for x := left; x < centerImage.X; x++ {
+			dstRect := image.Rect(x, top, x+1, bottom+1)
+			srcPt := image.Pt(right-counter, top)
+			draw.Draw(t.transformedImage.(draw.Image), dstRect, t.originalImage, srcPt, draw.Over)
+
+			dstRect2 := image.Rect(right-counter-1, top, (right - counter), bottom+1)
+			srcPt2 := image.Pt(x, top)
+			if !dstRect2.In(t.transformedImage.Bounds()) {
+				log.Warn().Msg("no buono")
+			}
+			draw.Draw(t.transformedImage.(draw.Image), dstRect2, t.originalImage, srcPt2, draw.Over)
+			counter++
+		}
+	}
+
+	if flipVertically {
+		left := t.transformedImage.Bounds().Min.X
+		top := t.transformedImage.Bounds().Min.Y
+		bottom := t.transformedImage.Bounds().Max.Y - 1
+		right := t.transformedImage.Bounds().Max.X - 1
+
+		counter := 0
+		for y := top; y < centerImage.Y; y++ {
+			dstRect := image.Rect(left, y, right+1, y+1)
+			srcPt := image.Pt(left, bottom-counter)
+			draw.Draw(t.transformedImage.(draw.Image), dstRect, t.originalImage, srcPt, draw.Over)
+
+			dstRect2 := image.Rect(left, bottom-counter-1, right+1, bottom-counter)
+			srcPt2 := image.Pt(left, y)
+			draw.Draw(t.transformedImage.(draw.Image), dstRect2, t.originalImage, srcPt2, draw.Over)
+			counter++
+		}
+	}
 }
 
 // Rotate the original image and returns the result.
 // Rotate accepts degrees (e.g., 45°, 90°, 180° etc...)
-func (t *Transformation2D) Rotate(degrees float64) image.Image {
+func (t *Transformation2D) Rotate(degrees float64) {
+	t.setOriginalImageIfNecessary()
+
 	radians := t.Radians(degrees)
 	log.Trace().Float64("degrees", degrees).Float64("radians", radians).Msg("rotating image")
 	rect := t.rotateRect(t.originalImage.Bounds(), radians)
@@ -107,7 +167,6 @@ func (t *Transformation2D) Rotate(degrees float64) image.Image {
 	top := rect.Min.Y
 	bottom := rect.Max.Y
 
-	// temp
 	if t.transformedImage == nil {
 		t.transformedImage = image.NewRGBA(rect)
 	}
@@ -120,11 +179,50 @@ func (t *Transformation2D) Rotate(degrees float64) image.Image {
 				continue
 			}
 			clr := t.originalImage.At(src.X, src.Y)
-			t.transformedImage.(interface{ Set(int, int, color.Color) }).Set(dst.X, dst.Y, clr)
+			t.transformedImage.(draw.Image).Set(dst.X, dst.Y, clr)
 		}
 	}
+}
 
-	return t.transformedImage
+func (t *Transformation2D) Transform(opts transformation2doptions.Transformation2DOptions) (image.Image, error) {
+
+	optsDiff := opts.Difference(t.currentOpts)
+	t.currentOpts = opts
+
+	switch optsDiff.OriginPointType {
+	case transformation2doptions.OriginCenterImage:
+		t.SetOriginToCenterImage()
+	case transformation2doptions.OriginTopLeft:
+		t.SetOriginToTopLeft()
+	case transformation2doptions.OriginTopRight:
+		t.SetOriginToTopRight()
+	case transformation2doptions.OriginBottomLeft:
+		t.SetOriginToBottomLeft()
+	case transformation2doptions.OriginBottomRight:
+		t.SetOriginToBottomRight()
+	case transformation2doptions.OriginCustom:
+		t.SetOrigin(t.Origin())
+	default:
+		return nil, ErrInvalidOriginPointType
+	}
+
+	if optsDiff.Rotation.Degrees > 0 {
+		t.Rotate(opts.Rotation.Degrees)
+	}
+
+	if optsDiff.FlipImage != transformation2doptions.DontFlipImage {
+		flipH := optsDiff.FlipImage.HasFlag(transformation2doptions.FlipImageHorizontally)
+		flipV := optsDiff.FlipImage.HasFlag(transformation2doptions.FlipImageVertically)
+		t.FlipImage(flipH, flipV)
+	}
+
+	// No transformations happened.
+	// Return the original image.
+	if t.transformedImage == nil {
+		return t.originalImage, nil
+	}
+
+	return t.transformedImage, nil
 }
 
 /* Set Origin */
@@ -133,14 +231,16 @@ func (t *Transformation2D) Rotate(degrees float64) image.Image {
 // If the image is a sub image, it automatically recognizes the coordinates
 // using img.Bounds().
 func (t *Transformation2D) SetOriginToCenterImage() {
-	left := float64(t.originalImage.Bounds().Min.X)
-	width := float64(t.originalImage.Bounds().Dx() - 1)
+	t.origin = t.centerImage(t.originalImage)
+}
+func (t *Transformation2D) centerImage(img image.Image) pointf.PointF {
+	left := float64(img.Bounds().Min.X)
+	width := float64(img.Bounds().Dx() - 1)
 
-	top := float64(t.originalImage.Bounds().Min.Y)
-	height := float64(t.originalImage.Bounds().Dy() - 1)
+	top := float64(img.Bounds().Min.Y)
+	height := float64(img.Bounds().Dy() - 1)
 
-	t.origin.X = left + (width / 2)
-	t.origin.Y = top + (height / 2)
+	return pointf.New(left+(width/2), top+(height/2))
 }
 func (t *Transformation2D) SetOriginToTopLeft() {
 	t.origin.X = float64(t.originalImage.Bounds().Min.X)
