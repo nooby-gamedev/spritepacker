@@ -10,8 +10,10 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/nooby-gamedev/spritepacker/pkg/extensions"
+	"github.com/nooby-gamedev/spritepacker/pkg/performancemonitor"
 	"github.com/nooby-gamedev/spritepacker/pkg/spritepack"
 	"github.com/nooby-gamedev/spritepacker/pkg/transformation/transformation2d"
 	"github.com/nooby-gamedev/spritepacker/pkg/transformation/transformation2doptions"
@@ -20,6 +22,7 @@ import (
 
 type SpriteName string
 type SpriteAnimationGroupName string
+type SpriteCacheKey string
 
 type DrawableImage interface {
 	Set(x int, y int, clr color.Color)
@@ -29,17 +32,24 @@ type DrawableImage interface {
 type SpritePackReader struct {
 	spritePack      *spritepack.SpritePack
 	spritePackImage image.Image
+	caches          map[SpriteCacheKey]image.Image
+	mu              sync.RWMutex
+	performance     *performancemonitor.PerformanceMonitor
 }
 
 func NewEmpty() *SpritePackReader {
 	return &SpritePackReader{
-		spritePack: spritepack.New(),
+		spritePack:  spritepack.New(),
+		caches:      make(map[SpriteCacheKey]image.Image),
+		performance: performancemonitor.Monitor(),
 	}
 }
 
 func NewBuf(spritePackImage, spritePackJson []byte, spritePackImageExtension extensions.SupportedExtension) (*SpritePackReader, error) {
 	s := &SpritePackReader{
-		spritePack: spritepack.New(),
+		spritePack:  spritepack.New(),
+		caches:      make(map[SpriteCacheKey]image.Image),
+		performance: performancemonitor.Monitor(),
 	}
 	if err := s.LoadPackJsonBuf(spritePackJson); err != nil {
 		return nil, err
@@ -53,7 +63,9 @@ func NewBuf(spritePackImage, spritePackJson []byte, spritePackImageExtension ext
 // Creates a new instance of SpritePackReader and automatically set JSON and Image files
 func New(spritePackImage, spritePackJson string) (*SpritePackReader, error) {
 	s := &SpritePackReader{
-		spritePack: spritepack.New(),
+		spritePack:  spritepack.New(),
+		caches:      make(map[SpriteCacheKey]image.Image),
+		performance: performancemonitor.Monitor(),
 	}
 
 	if err := s.LoadPackJson(spritePackJson); err != nil {
@@ -67,12 +79,38 @@ func New(spritePackImage, spritePackJson string) (*SpritePackReader, error) {
 	return s, nil
 }
 
+func (s *SpritePackReader) getSpriteCacheKey(cacheCustomKey string, spriteNormalizedName SpriteName, optsCacheKey string) SpriteCacheKey {
+	return SpriteCacheKey(fmt.Sprintf("%s.%s.%s", cacheCustomKey, spriteNormalizedName, optsCacheKey))
+}
+
+func (s *SpritePackReader) SetSpriteCache(cacheCustomKey string, spriteNormalizedName SpriteName, optsCacheKey string, img image.Image) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	spriteCacheKey := s.getSpriteCacheKey(cacheCustomKey, spriteNormalizedName, optsCacheKey)
+	s.caches[spriteCacheKey] = img
+}
+func (s *SpritePackReader) GetSpriteCache(cacheCustomKey string, spriteNormalizedName SpriteName, optsCacheKey string) (image.Image, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	spriteCacheKey := s.getSpriteCacheKey(cacheCustomKey, spriteNormalizedName, optsCacheKey)
+	spriteCache, ok := s.caches[spriteCacheKey]
+
+	if !ok {
+		return nil, false
+	}
+	return spriteCache, true
+}
+
 // Draws the sprite.
-// If cacheCustomKey is not empty, it uses caches
+// If cacheCustomKey is NOT empty, it uses caches.
 // If the sprite was not found, it returns ErrSpriteNotFound.
 //
 // If the sprite sheet has not been loaded, it returns ErrSpriteSheetNodLoaded.
 func (s *SpritePackReader) DrawSprite(cacheCustomKey string, spriteNormalizedName SpriteName, dst draw.Image, dstX, dstY int, opts transformation2doptions.Transformation2DOptions) error {
+	s.performance.StartMeasureAverageDeltaTime("spritepackreader.draw_sprite")
+	defer s.performance.StopMeasureAverageDeltaTime("spritepackreader.draw_sprite")
+
 	if s.spritePackImage == nil {
 		return ErrSpriteSheetNodLoaded
 	}
@@ -89,7 +127,28 @@ func (s *SpritePackReader) DrawSprite(cacheCustomKey string, spriteNormalizedNam
 		return ErrSpritesheetNotValidPng
 	}
 
-	transform2d := transformation2d.New(subImg.SubImage(sprite.Rect()))
+	optsCacheKey := opts.CacheKey()
+	var useCache bool = (cacheCustomKey != "")
+	var transform2d *transformation2d.Transformation2D
+
+	// When using caches, we try to get the cached sprite.
+	// If it exists, we use that image for a new Transform2D instance, with empty options.
+	//
+	// By using empty options, the transform2d.Transform(opts) will just return the image itself.
+	if useCache {
+		s.performance.StartMeasureAverageDeltaTime("spritepackreader.get_cache")
+		img, ok := s.GetSpriteCache(cacheCustomKey, spriteNormalizedName, optsCacheKey)
+		if ok {
+			transform2d = transformation2d.New(img)
+			opts = transformation2doptions.Transformation2DOptions{}
+		}
+		s.performance.StopMeasureAverageDeltaTime("spritepackreader.get_cache")
+	}
+
+	if transform2d == nil {
+		transform2d = transformation2d.New(subImg.SubImage(sprite.Rect()))
+	}
+
 	transformedImg, err := transform2d.Transform(opts)
 
 	if err != nil {
@@ -100,6 +159,12 @@ func (s *SpritePackReader) DrawSprite(cacheCustomKey string, spriteNormalizedNam
 	srcPoint := image.Point{X: transformedImg.Bounds().Min.X, Y: transformedImg.Bounds().Min.Y}
 
 	draw.Draw(dst, dstRect, transformedImg, srcPoint, 0)
+
+	if useCache {
+		s.performance.StartMeasureAverageDeltaTime("spritepackreader.set_cache")
+		s.SetSpriteCache(cacheCustomKey, spriteNormalizedName, optsCacheKey, transformedImg)
+		s.performance.StopMeasureAverageDeltaTime("spritepackreader.set_cache")
+	}
 
 	return nil
 }

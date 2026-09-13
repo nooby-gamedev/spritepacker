@@ -1,6 +1,7 @@
 package transformation2doptions
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/nooby-gamedev/spritepacker/pkg/transformation/pointf"
@@ -54,6 +55,7 @@ func (t Transformation2DOptions) Difference(t2 Transformation2DOptions) Transfor
 		FlipImage:       flip,
 	}
 }
+
 func (f FlipImage) HasFlag(f2 FlipImage) bool {
 	return f&f2 == f2
 }
@@ -67,4 +69,22 @@ func (f FlipImage) Swap(f2 FlipImage) FlipImage {
 		f |= f2
 	}
 	return f
+}
+
+// Returns a cache key that identifies a specific Transformation2DOptions state
+func (t Transformation2DOptions) CacheKey() string {
+	originPointTypeStr := fmt.Sprintf("optt.%d", t.OriginPointType)
+
+	originPt := pointf.New(0, 0)
+	if t.OriginPointType == OriginCustom {
+		originPt = t.OriginPoint
+	}
+
+	originPtStr := fmt.Sprintf("opt.%fx%f", originPt.X, originPt.Y)
+	flipImgStr := fmt.Sprintf("flp.%d", t.FlipImage)
+
+	rotationStr := fmt.Sprintf("rot.%f", t.Rotation.Degrees)
+
+	key := fmt.Sprintf("%s.%s.%s.%s", originPointTypeStr, originPtStr, flipImgStr, rotationStr)
+	return key
 }

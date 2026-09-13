@@ -98,7 +98,15 @@ func (l *Loader) isExtensionSupported(ext string) bool {
 
 // Load all images and order them by either width or height
 // depending on the max value detected.
-func (l *Loader) LoadImages(dir string, animationGroup string) *Loader {
+func (l *Loader) LoadImages(dir string) *Loader {
+	return l.loadImages(dir, EmptyAnimationGroup)
+}
+
+// Load all images and order them by either width or height
+// depending on the max value detected.
+//
+// WARNING: when called by LoadImages(dir string), animationGroup MUST be an empty string.
+func (l *Loader) loadImages(dir string, animationGroup string) *Loader {
 	entries, err := os.ReadDir(dir)
 
 	if err != nil {
@@ -120,7 +128,7 @@ func (l *Loader) LoadImages(dir string, animationGroup string) *Loader {
 			//
 			// If an animation group is already set, further subfolders will be ignored.
 			if animationGroup == EmptyAnimationGroup {
-				l.LoadImages(fullPath, entry.Name())
+				l.loadImages(fullPath, entry.Name())
 			}
 			continue
 		}
