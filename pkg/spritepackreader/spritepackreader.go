@@ -79,21 +79,21 @@ func New(spritePackImage, spritePackJson string) (*SpritePackReader, error) {
 	return s, nil
 }
 
-func (s *SpritePackReader) getSpriteCacheKey(cacheCustomKey string, spriteNormalizedName SpriteName, optsCacheKey string) SpriteCacheKey {
-	return SpriteCacheKey(fmt.Sprintf("%s.%s.%s", cacheCustomKey, spriteNormalizedName, optsCacheKey))
+func (s *SpritePackReader) getSpriteCacheKey(spriteNormalizedName SpriteName, optsCacheKey string) SpriteCacheKey {
+	return SpriteCacheKey(fmt.Sprintf("%s.%s", spriteNormalizedName, optsCacheKey))
 }
 
-func (s *SpritePackReader) SetSpriteCache(cacheCustomKey string, spriteNormalizedName SpriteName, optsCacheKey string, img image.Image) {
+func (s *SpritePackReader) SetSpriteCache(spriteNormalizedName SpriteName, optsCacheKey string, img image.Image) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	spriteCacheKey := s.getSpriteCacheKey(cacheCustomKey, spriteNormalizedName, optsCacheKey)
+	spriteCacheKey := s.getSpriteCacheKey(spriteNormalizedName, optsCacheKey)
 	s.caches[spriteCacheKey] = img
 }
-func (s *SpritePackReader) GetSpriteCache(cacheCustomKey string, spriteNormalizedName SpriteName, optsCacheKey string) (image.Image, bool) {
+func (s *SpritePackReader) GetSpriteCache(spriteNormalizedName SpriteName, optsCacheKey string) (image.Image, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	spriteCacheKey := s.getSpriteCacheKey(cacheCustomKey, spriteNormalizedName, optsCacheKey)
+	spriteCacheKey := s.getSpriteCacheKey(spriteNormalizedName, optsCacheKey)
 	spriteCache, ok := s.caches[spriteCacheKey]
 
 	if !ok {
@@ -107,7 +107,7 @@ func (s *SpritePackReader) GetSpriteCache(cacheCustomKey string, spriteNormalize
 // If the sprite was not found, it returns ErrSpriteNotFound.
 //
 // If the sprite sheet has not been loaded, it returns ErrSpriteSheetNodLoaded.
-func (s *SpritePackReader) DrawSprite(cacheCustomKey string, spriteNormalizedName SpriteName, dst draw.Image, dstX, dstY int, opts transformation2doptions.Transformation2DOptions) error {
+func (s *SpritePackReader) DrawSprite(spriteNormalizedName SpriteName, dst draw.Image, opts transformation2doptions.Transformation2DOptions, useCache bool) error {
 	s.performance.StartMeasureAverageDeltaTime("spritepackreader.draw_sprite")
 	defer s.performance.StopMeasureAverageDeltaTime("spritepackreader.draw_sprite")
 
@@ -128,7 +128,15 @@ func (s *SpritePackReader) DrawSprite(cacheCustomKey string, spriteNormalizedNam
 	}
 
 	optsCacheKey := opts.CacheKey()
-	var useCache bool = (cacheCustomKey != "")
+
+	// If optsCacheKey is equal to the default options cache key, it means
+	// no transformations will happen.
+	//
+	// By setting useCache to FALSE, it will return the original image directly.
+	// We want to avoid caching the original image.
+	if optsCacheKey == transformation2doptions.OriginalImageCacheKey() {
+		useCache = false
+	}
 	var transform2d *transformation2d.Transformation2D
 
 	// When using caches, we try to get the cached sprite.
@@ -137,10 +145,15 @@ func (s *SpritePackReader) DrawSprite(cacheCustomKey string, spriteNormalizedNam
 	// By using empty options, the transform2d.Transform(opts) will just return the image itself.
 	if useCache {
 		s.performance.StartMeasureAverageDeltaTime("spritepackreader.get_cache")
-		img, ok := s.GetSpriteCache(cacheCustomKey, spriteNormalizedName, optsCacheKey)
+		img, ok := s.GetSpriteCache(spriteNormalizedName, optsCacheKey)
 		if ok {
 			transform2d = transformation2d.New(img)
-			opts = transformation2doptions.Transformation2DOptions{}
+			pos := opts.Position
+			speed := opts.Speed()
+			opts = transformation2doptions.Transformation2DOptions{
+				Position: pos,
+			}
+			opts.SetSpeed(speed)
 		}
 		s.performance.StopMeasureAverageDeltaTime("spritepackreader.get_cache")
 	}
@@ -155,14 +168,17 @@ func (s *SpritePackReader) DrawSprite(cacheCustomKey string, spriteNormalizedNam
 		return err
 	}
 
+	dstPos := opts.Position.Coordinates.ToPointRound()
+	dstX := dstPos.X
+	dstY := dstPos.Y
 	dstRect := image.Rect(dstX, dstY, (dstX + transformedImg.Bounds().Dx()), (dstY + transformedImg.Bounds().Dy()))
 	srcPoint := image.Point{X: transformedImg.Bounds().Min.X, Y: transformedImg.Bounds().Min.Y}
 
-	draw.Draw(dst, dstRect, transformedImg, srcPoint, 0)
+	draw.Draw(dst, dstRect, transformedImg, srcPoint, draw.Over)
 
 	if useCache {
 		s.performance.StartMeasureAverageDeltaTime("spritepackreader.set_cache")
-		s.SetSpriteCache(cacheCustomKey, spriteNormalizedName, optsCacheKey, transformedImg)
+		s.SetSpriteCache(spriteNormalizedName, optsCacheKey, transformedImg)
 		s.performance.StopMeasureAverageDeltaTime("spritepackreader.set_cache")
 	}
 

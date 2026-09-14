@@ -4,7 +4,6 @@ import (
 	"image/draw"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/nooby-gamedev/spritepacker/pkg/spritepack"
 	"github.com/nooby-gamedev/spritepacker/pkg/transformation/transformation2doptions"
 	"github.com/rs/zerolog/log"
@@ -30,11 +29,11 @@ type Animation struct {
 
 // Create a new animation.
 //
-// If id is empty, it creates a random id (uuid).
+// If id is empty, it returns ErrAnimationIdCannotBeEmpty.
 // If id already exists, it returns ErrAnimationIdAlreadyExists.
 func (a *AnimationGroup) newAnimation(id string) (*Animation, error) {
 	if id == "" {
-		id = uuid.NewString()
+		return nil, ErrAnimationIdCannotBeEmpty
 	}
 
 	_, ok := a.animations[id]
@@ -54,8 +53,16 @@ func (a *AnimationGroup) newAnimation(id string) (*Animation, error) {
 }
 
 // Returns the animation by id.
-// If it doesn't exist, it automatically creates it.
+// If id doesn't exist, it automatically creates it.
+// If id is empty, it returns ErrAnimationIdCannotBeEmpty.
+//
+// The ID is used to keep track of the current sprite for a given animation.
+// For example, if we have two players, we can use Animation("player1") and Animation("player2") to
+// track both separately.
 func (a *AnimationGroup) Animation(id string) (*Animation, error) {
+	if id == "" {
+		return nil, ErrAnimationIdCannotBeEmpty
+	}
 	animation, ok := a.animations[id]
 	if ok {
 		return animation, nil
@@ -88,7 +95,7 @@ func (a *Animation) tickThreshold() float64 {
 	}
 	return float64(len(a.animationGroup.sprites)) / float64(a.animationGroup.targetFPS)
 }
-func (a *Animation) Draw(cacheCustomKey string, dst draw.Image, dstX, dstY int, opts transformation2doptions.Transformation2DOptions) error {
+func (a *Animation) Draw(dst draw.Image, opts transformation2doptions.Transformation2DOptions, useCache bool) error {
 	dt, now := a.dt()
 	threshold := a.tickThreshold()
 	if dt >= threshold {
@@ -97,7 +104,7 @@ func (a *Animation) Draw(cacheCustomKey string, dst draw.Image, dstX, dstY int, 
 	}
 	return a.animationGroup.
 		spritePackReader.
-		DrawSprite(cacheCustomKey, SpriteName(a.sprite.NormalizedName), dst, dstX, dstY, opts)
+		DrawSprite(SpriteName(a.sprite.NormalizedName), dst, opts, useCache)
 }
 
 func (a *AnimationGroup) SetTargetFPS(fps int) {

@@ -3,6 +3,7 @@ package performancemonitor
 import (
 	"encoding/json"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -19,6 +20,7 @@ type PerformanceMonitor struct {
 	monitorAvgDelta map[string]time.Time
 	enabled         bool
 	counterLimit    int
+	mu              sync.RWMutex
 }
 
 var session *PerformanceMonitor
@@ -40,18 +42,26 @@ func Monitor() *PerformanceMonitor {
 
 // Set counter limit (0 = unlimited).
 func (p *PerformanceMonitor) SetCounterLimit(value int) *PerformanceMonitor {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.counterLimit = value
 	return p
 }
 func (p *PerformanceMonitor) Enable() *PerformanceMonitor {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.enabled = true
 	return p
 }
 func (p *PerformanceMonitor) Disable() *PerformanceMonitor {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	p.enabled = false
 	return p
 }
 func (p *PerformanceMonitor) StartMeasureAverageDeltaTime(key string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if !p.enabled {
 		return
 	}
@@ -63,6 +73,8 @@ func (p *PerformanceMonitor) StartMeasureAverageDeltaTime(key string) {
 	p.monitorAvgDelta[key] = time.Now()
 }
 func (p *PerformanceMonitor) StopMeasureAverageDeltaTime(key string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
 	if !p.enabled {
 		return
 	}
@@ -94,6 +106,8 @@ func (p *PerformanceMonitor) StopMeasureAverageDeltaTime(key string) {
 
 // Save as JSON
 func (p *PerformanceMonitor) SaveJson(savePath string) error {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
 	handle, err := os.Create(savePath)
 	if err != nil {
 		return err
@@ -105,6 +119,3 @@ func (p *PerformanceMonitor) SaveJson(savePath string) error {
 	}
 	return nil
 }
-
-// cache: 0000027963092590861513
-// nocac: 00003676508300395364
