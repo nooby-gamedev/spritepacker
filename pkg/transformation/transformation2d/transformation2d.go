@@ -46,15 +46,6 @@ func (t *Transformation2D) OriginalImage() image.Image {
 	return t.originalImage
 }
 
-func (t *Transformation2D) nearestNeighborPointF(pt pointf.PointF) image.Point {
-	return image.Pt(int(math.Round(pt.X)), int(math.Round(pt.Y)))
-}
-func (t *Transformation2D) nearestNeighborRectF(r rectf.RectF) image.Rectangle {
-	min := t.nearestNeighborPointF(r.Min)
-	max := t.nearestNeighborPointF(r.Max)
-	return image.Rect(min.X, min.Y, max.X, max.Y)
-}
-
 // Returns the transformed image
 func (t *Transformation2D) Image() image.Image {
 	return t.transformedImage
@@ -184,6 +175,93 @@ func (t *Transformation2D) flipImage(flipHorizontally, flipVertically bool) {
 	}
 }
 
+func (t *Transformation2D) scale(horizontally, vertically float64) {
+	horizontally = math.Max(horizontally, 0)
+	vertically = math.Max(vertically, 0)
+
+	srcRect := t.getSourceImage().Bounds()
+	widthF := float64(srcRect.Dx()) * (horizontally / 100)
+	heightF := float64(srcRect.Dy()) * (vertically / 100)
+
+	width := int(math.Round(widthF))
+	height := int(math.Round(heightF))
+
+	// Returns an empty image if width or height are <= 0
+	if width <= 0 || height <= 0 {
+		t.transformedImage = image.NewRGBA(image.Rect(0, 0, 0, 0))
+	}
+
+	dstRect := srcRect
+	dstRect.Max.X = dstRect.Min.X + width
+	dstRect.Max.Y = dstRect.Min.Y + height
+
+	src := t.getSourceImage()
+	dst := image.NewRGBA(dstRect)
+
+	upscaleHor := horizontally > transformation2doptions.DefaultScalingFactor
+	upscaleVer := vertically > transformation2doptions.DefaultScalingFactor
+
+	downscaleHor := horizontally < transformation2doptions.DefaultScalingFactor
+	downscaleVer := vertically < transformation2doptions.DefaultScalingFactor
+
+	upscale := upscaleHor || upscaleVer
+	downscale := downscaleHor || downscaleVer
+
+	if upscale {
+
+		left := dst.Bounds().Min.X
+		right := dst.Bounds().Max.X
+		top := dst.Bounds().Min.Y
+		bottom := dst.Bounds().Max.Y
+
+		// For each pixel of the destination (which will be bigger), calculate the
+		// source pixel using the nearest neighbor.
+		for x := left; x < right; x++ {
+			for y := top; y < bottom; y++ {
+				srcX := int(math.Round(float64(x-left)/(horizontally/100))) + left
+				srcY := int(math.Round(float64(y-top)/(vertically/100))) + top
+
+				if !image.Pt(srcX, srcY).In(srcRect) {
+					break
+				}
+				clr := src.At(srcX, srcY)
+				dst.Set(x, y, clr)
+			}
+		}
+
+		t.transformedImage = dst
+	}
+
+	if downscale {
+
+		left := src.Bounds().Min.X
+		right := src.Bounds().Max.X
+		top := src.Bounds().Min.Y
+		bottom := src.Bounds().Max.Y
+
+		// For each pixel of the source (which is bigger), calculate the
+		// destination pixel using the nearest neighbor.
+		//
+		// TODO: implement other interpolation algorithms and let the dev choose
+		// which one to use, via Transformation2DOptions.
+		for x := left; x < right; x++ {
+			for y := top; y < bottom; y++ {
+				dstX := int(math.Round(float64(x-left)/(100/horizontally))) + left
+				dstY := int(math.Round(float64(y-top)/(100/vertically))) + top
+
+				if !image.Pt(dstX, dstY).In(dstRect) {
+					break
+				}
+				clr := src.At(x, y)
+				dst.Set(dstX, dstY, clr)
+			}
+		}
+
+		t.transformedImage = dst
+	}
+
+}
+
 // rotate the original image and returns the result.
 // rotate accepts degrees (e.g., 45°, 90°, 180° etc...)
 func (t *Transformation2D) rotate(degrees float64) {
@@ -252,6 +330,11 @@ func (t *Transformation2D) Transform(opts transformation2doptions.Transformation
 		t.performance.StopMeasureAverageDeltaTime("transform.flip")
 	}
 
+	if optsDiff.Scaling.Scaled() {
+		t.performance.StartMeasureAverageDeltaTime("transform.scaling")
+		t.scale(optsDiff.Scaling.Horizontal, optsDiff.Scaling.Vertical)
+		t.performance.StopMeasureAverageDeltaTime("transform.scaling")
+	}
 	// No transformations happened.
 	// TransformedImage is equal to OriginalImage
 	if t.transformedImage == nil {

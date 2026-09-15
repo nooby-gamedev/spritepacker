@@ -150,10 +150,9 @@ func (s *SpritePackReader) DrawSprite(spriteNormalizedName SpriteName, dst draw.
 			transform2d = transformation2d.New(img)
 			pos := opts.Position
 			speed := opts.Speed()
-			opts = transformation2doptions.Transformation2DOptions{
-				Position: pos,
-			}
-			opts.SetSpeed(speed)
+			scalingFactor := opts.ScalingFactor()
+			opts = *transformation2doptions.New(speed, pos.Coordinates)
+			opts.SetScalingFactor(scalingFactor)
 		}
 		s.performance.StopMeasureAverageDeltaTime("spritepackreader.get_cache")
 	}
